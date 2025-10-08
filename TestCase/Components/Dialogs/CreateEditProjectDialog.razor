@@ -1,0 +1,114 @@
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@inject ProjectService ProjectService
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudText class="mb-4" Weight="FontWeight.Medium">@title</MudText>
+        <MudForm @ref="form" Model="@project">
+            <MudTextField Label="项目名称" 
+                          @bind-Value="project.Name" 
+                          Required="true" 
+                          RequiredError="项目名称是必填项"
+                          For="@(() => project.Name)"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-3" />
+            
+            <MudTextField Label="项目描述" 
+                          @bind-Value="project.Description" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Lines="3"
+                          Class="mb-3" />
+
+            <MudDatePicker Label="开始日期"
+                           @bind-Date="project.StartDate"
+                           Editable="true"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="mb-3" />
+            
+            <MudDatePicker Label="结束日期" 
+                           @bind-Date="project.EndDate"
+                           Editable="true"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="mb-3" />
+            
+            <MudNumericField Label="测试轮次"
+                             @bind-Value="project.TestRounds"
+                             Variant="Variant.Outlined"
+                             Margin="Margin.Dense"
+                             Min="1"
+                             Max="100"
+                             Class="mb-3" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">取消</MudButton>
+        <MudButton OnClick="Save" Color="Color.Primary" Variant="Variant.Filled">保存</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter] 
+    public int ProjectId { get; set; }
+
+    private bool IsEdit => ProjectId > 0;
+    private string title => IsEdit ? "编辑项目" : "新增项目";
+    private readonly Project project = new();
+    private MudForm form = null!;
+
+    protected override void OnInitialized()
+    {
+        if (IsEdit)
+        {
+            var existingProject = ProjectService.GetProjectById(ProjectId);
+            if (existingProject != null)
+            {
+                project.Id = existingProject.Id;
+                project.Name = existingProject.Name;
+                project.Description = existingProject.Description;
+                project.StartDate = existingProject.StartDate;
+                project.EndDate = existingProject.EndDate;
+                project.TestRounds = existingProject.TestRounds;
+            }
+        }
+        else
+        {
+            // 设置默认日期和测试轮次
+            project.StartDate = DateTime.Today;
+            project.EndDate = DateTime.Today.AddMonths(1);
+            project.TestRounds = 1;
+        }
+    }
+
+    private async Task Save()
+    {
+        await form.Validate();
+
+        if (form.IsValid)
+        {
+            if (IsEdit)
+            {
+                ProjectService.UpdateProject(project);
+            }
+            else
+            {
+                ProjectService.CreateProject(project);
+            }
+            MudDialog?.Close(DialogResult.Ok(true));
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog?.Cancel();
+    }
+}

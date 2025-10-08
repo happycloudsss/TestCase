@@ -1,0 +1,158 @@
+@page "/projects/{projectId:int}/modules"
+@using TestCase.Components.Dialogs
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@inject ModuleService ModuleService
+@inject ProjectService ProjectService
+@inject TestCaseService TestCaseService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h4" class="mb-4">@projectName - 功能模块管理</MudText>
+    
+    <MudStack Row="true" Spacing="2" class="mb-4">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenCreateDialog">
+            <MudIcon Icon="@Icons.Material.Filled.Add" class="mr-1" />
+            新增模块
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="GoBack">
+            <MudIcon Icon="@Icons.Material.Filled.ArrowBack" class="mr-1" />
+            返回项目列表
+        </MudButton>
+    </MudStack>
+
+    <MudTable Items="@modules" 
+              Hover="true" 
+              Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>模块名称</MudTh>
+            <MudTh>模块描述</MudTh>
+            <MudTh>负责人1</MudTh>
+            <MudTh>负责人2</MudTh>
+            <MudTh>测试用例数量</MudTh>
+            <MudTh>操作</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="模块名称">@context.Name</MudTd>
+            <MudTd DataLabel="模块描述">@context.Description</MudTd>
+            <MudTd DataLabel="负责人1">@context.Owner1</MudTd>
+            <MudTd DataLabel="负责人2">@context.Owner2</MudTd>
+            <MudTd DataLabel="测试用例数量">
+                <MudLink OnClick="@(e => GoToTestCases(context.Id))" Color="Color.Primary">
+                    @GetTestCaseCount(context.Id)
+                </MudLink>
+            </MudTd>
+            <MudTd DataLabel="操作">
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               OnClick="@(e => OpenEditDialog(context))">
+                        编辑
+                    </MudButton>
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Secondary" 
+                               OnClick="@(e => DeleteModule(context))">
+                        删除
+                    </MudButton>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public int ProjectId { get; set; }
+    
+    private IEnumerable<Module> modules = new List<Module>();
+    private string projectName = "";
+
+    protected override void OnInitialized()
+    {
+        LoadProject();
+        LoadModules();
+    }
+
+    private void LoadProject()
+    {
+        var project = ProjectService.GetProjectById(ProjectId);
+        if (project != null)
+        {
+            projectName = project.Name;
+        }
+    }
+
+    private void LoadModules()
+    {
+        modules = ModuleService.GetModulesByProjectId(ProjectId);
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            { "ProjectId", ProjectId }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditModuleDialog>("新增模块", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadModules();
+            Snackbar.Add("模块创建成功", Severity.Success);
+        }
+    }
+
+    private async Task OpenEditDialog(Module module)
+    {
+        var parameters = new DialogParameters
+        {
+            { "ModuleId", module.Id }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditModuleDialog>("编辑模块", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadModules();
+            Snackbar.Add("模块更新成功", Severity.Success);
+        }
+    }
+
+    private async Task DeleteModule(Module module)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "删除确认",
+            $"确定要删除模块 \"{module.Name}\" 吗？此操作无法撤销。",
+            yesText: "删除", cancelText: "取消");
+
+        if (result == true)
+        {
+            ModuleService.DeleteModule(module.Id);
+            LoadModules();
+            Snackbar.Add("模块删除成功", Severity.Success);
+        }
+    }
+    
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/");
+    }
+    
+    private void GoToTestCases(int moduleId)
+    {
+        Navigation.NavigateTo($"/modules/{moduleId}/testcases");
+    }
+    
+    private int GetTestCaseCount(int moduleId)
+    {
+        return TestCaseService.GetTestCasesByModuleId(moduleId).Count();
+    }
+}

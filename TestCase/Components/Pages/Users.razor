@@ -1,0 +1,153 @@
+@page "/users"
+@using Microsoft.AspNetCore.Components
+@using MudBlazor
+@using TestCase.Components.Dialogs
+@using TestCase.Entities
+@using TestCase.Services
+
+@inject UserService UserService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h4" class="mb-4">用户管理</MudText>
+    
+    <MudStack Row="true" Spacing="2" class="mb-4">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCreateUserDialog">
+            <MudIcon Icon="@Icons.Material.Filled.Add" class="mr-1" />
+            添加用户
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" Href="/">
+            <MudIcon Icon="@Icons.Material.Filled.Home" class="mr-1" />
+            回到首页
+        </MudButton>
+    </MudStack>
+
+    <MudPaper Elevation="3" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h5" class="mb-3">用户列表</MudText>
+        
+        @if (users.Any())
+        {
+            <MudTable T="User" Items="@users" Hover="true" SortLabel="排序" FilterLabel="筛选" FilterCaseSensitivity="false" Striped="true">
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel T="User" SortBy="@(u => u.EmployeeId)">工号</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel T="User" SortBy="@(u => u.Name)">姓名</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel T="User" SortBy="@(u => u.Email)">邮箱</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel T="User" SortBy="@(u => u.CreatedTime)">创建时间</MudTableSortLabel></MudTh>
+                    <MudTh>操作</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="工号">@context.EmployeeId</MudTd>
+                    <MudTd DataLabel="姓名">@context.Name</MudTd>
+                    <MudTd DataLabel="邮箱">@context.Email</MudTd>
+                    <MudTd DataLabel="创建时间">@context.CreatedTime.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd DataLabel="操作">
+                        <MudStack Row="true" Spacing="2">
+                            <MudButton Color="Color.Primary" Size="Size.Small" OnClick="@(e => OpenEditUserDialog(context))">编辑</MudButton>
+                            <MudButton Color="Color.Error" Size="Size.Small" OnClick="@(e => DeleteUser(context))">删除</MudButton>
+                        </MudStack>
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager />
+                </PagerContent>
+            </MudTable>
+        }
+        else
+        {
+            <MudText>暂无用户数据</MudText>
+        }
+    </MudPaper>
+</MudPaper>
+
+@code {
+
+    private IEnumerable<User> users = new List<User>();
+    private User editingUser = new User();
+    private bool isEditMode = false;
+
+    protected override void OnInitialized()
+    {
+        LoadUsers();
+    }
+
+    private void LoadUsers()
+    {
+        users = UserService.GetAllUsers().OrderBy(u => u.EmployeeId);
+        StateHasChanged();
+    }
+
+    private async Task OpenCreateUserDialog()
+    {
+        isEditMode = false;
+        editingUser = new User();
+
+        var parameters = new DialogParameters();
+        parameters.Add("User", editingUser);
+        parameters.Add("IsEditMode", isEditMode);
+
+        var dialog = await DialogService.ShowAsync<EditUserDialog>("添加用户", parameters, new DialogOptions() { 
+            CloseButton = true, 
+            BackdropClick = true,
+            MaxWidth = MaxWidth.ExtraSmall
+        });
+
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadUsers();
+        }
+    }
+
+    private async Task OpenEditUserDialog(User user)
+    {
+        isEditMode = true;
+        editingUser = new User
+        {
+            Id = user.Id,
+            EmployeeId = user.EmployeeId,
+            Name = user.Name,
+            Email = user.Email
+        };
+        
+        var parameters = new DialogParameters();
+        parameters.Add("User", editingUser);
+        parameters.Add("IsEditMode", isEditMode);
+
+        var dialog = await DialogService.ShowAsync<EditUserDialog>("编辑用户", parameters, new DialogOptions() { 
+            CloseButton = true, 
+            BackdropClick = true,
+            MaxWidth = MaxWidth.ExtraSmall
+        });
+        
+        var result = await dialog.Result;
+        if (!result.Canceled)
+        {
+            LoadUsers();
+        }
+    }
+
+    private async Task DeleteUser(User user)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "确认删除",
+            $"确定要删除用户 {user.Name}({user.EmployeeId}) 吗？",
+            yesText: "删除",
+            cancelText: "取消");
+            
+        if (result == true)
+        {
+            try
+            {
+                UserService.DeleteUser(user.Id);
+                LoadUsers();
+                Snackbar.Add("用户删除成功", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"删除失败: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+}

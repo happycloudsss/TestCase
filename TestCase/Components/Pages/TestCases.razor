@@ -1,0 +1,237 @@
+@page "/modules/{moduleId:int}/testcases"
+@using TestCase.Components.Dialogs
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@inject TestCaseService TestCaseService
+@inject AttachmentService AttachmentService
+@inject TagService TagService
+@inject ModuleService ModuleService
+@inject TestResultService TestResultService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h4" class="mb-4">@moduleName - 测试用例管理</MudText>
+    
+    <MudStack Row="true" Spacing="2" class="mb-4">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenCreateDialog">
+            <MudIcon Icon="@Icons.Material.Filled.Add" class="mr-1" />
+            新增测试用例
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="GoBack">
+            <MudIcon Icon="@Icons.Material.Filled.ArrowBack" class="mr-1" />
+            返回模块列表
+        </MudButton>
+    </MudStack>
+
+    <MudTable Items="@testCases" 
+              Hover="true" 
+              Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>用例名称</MudTh>
+            <MudTh>用例描述</MudTh>
+            <MudTh>标签</MudTh>
+            <MudTh>附件</MudTh>
+            <MudTh>操作</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="用例名称">@context.Name</MudTd>
+            <MudTd DataLabel="用例描述">
+                <div class="rich-text-content">
+                    @((MarkupString)context.Description)
+                </div>
+            </MudTd>
+            <MudTd DataLabel="标签">
+                @string.Join(", ", GetTagsByTestCase(context.Id).Select(t => t.Name))
+            </MudTd>
+            <MudTd DataLabel="附件">
+                @{
+                    var attachments = GetAttachmentsByTestCase(context.Id);
+                    if (attachments.Any())
+                    {
+                        <div>
+                            @foreach (var attachment in attachments)
+                            {
+                                <div>
+                                    <MudLink Href="@($"api/attachment/{attachment.Id}")" Color="Color.Primary">@attachment.FileName</MudLink>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <span>无附件</span>
+                    }
+                }
+            </MudTd>
+            <MudTd DataLabel="操作">
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               OnClick="@(e => OpenEditDialog(context))">
+                        编辑
+                    </MudButton>
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Secondary" 
+                               OnClick="@(e => DeleteTestCase(context))">
+                        删除
+                    </MudButton>
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Filled"
+                               Color="Color.Tertiary"
+                               OnClick="@(e => GoToTestResults(context))">
+                        登记结果
+                    </MudButton>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+<style>
+    .rich-text-content {
+        max-height: 100px;
+        max-width: 600px;
+        overflow: hidden;
+        line-height: 1.5;
+        position: relative;
+        word-wrap: break-word;
+        word-break: break-word;
+    }
+    
+    /* .rich-text-content::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 30px;
+        background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1));
+    } */
+</style>
+
+@code {
+    [Parameter]
+    public int ModuleId { get; set; }
+
+    private IEnumerable<ProjectTestCase> testCases = new List<ProjectTestCase>();
+    private IEnumerable<Tag> allTags = new List<Tag>();
+    private string moduleName = "";
+
+    protected override void OnInitialized()
+    {
+        LoadModule();
+        LoadTestCases();
+        LoadTags();
+    }
+
+    private void LoadModule()
+    {
+        var module = ModuleService.GetModuleById(ModuleId);
+        if (module != null)
+        {
+            moduleName = module.Name;
+        }
+    }
+
+    private void LoadTestCases()
+    {
+        testCases = TestCaseService.GetTestCasesByModuleId(ModuleId);
+    }
+
+    private void LoadTags()
+    {
+        allTags = TagService.GetAllTags();
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            { "ModuleId", ModuleId },
+            { "AvailableTags", allTags.ToList() }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditTestCaseDialog>("新增测试用例", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadTestCases();
+            Snackbar.Add("测试用例创建成功", Severity.Success);
+        }
+    }
+
+    private async Task OpenEditDialog(ProjectTestCase testCase)
+    {
+        var parameters = new DialogParameters
+        {
+            { "TestCaseId", testCase.Id },
+            { "AvailableTags", allTags.ToList() }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditTestCaseDialog>("编辑测试用例", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadTestCases();
+            Snackbar.Add("测试用例更新成功", Severity.Success);
+        }
+    }
+
+    private async Task DeleteTestCase(ProjectTestCase testCase)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "删除确认",
+            $"确定要删除测试用例 \"{testCase.Name}\" 吗？此操作无法撤销。",
+            yesText: "删除", cancelText: "取消");
+
+        if (result == true)
+        {
+            TestCaseService.DeleteTestCase(testCase.Id);
+            LoadTestCases();
+            Snackbar.Add("测试用例删除成功", Severity.Success);
+        }
+    }
+    
+    private void GoBack()
+    {
+        Navigation.NavigateTo($"/projects/{GetProjectId()}/modules");
+    }
+    
+    private int GetProjectId()
+    {
+        var module = ModuleService.GetModuleById(ModuleId);
+        return module?.ProjectId ?? 0;
+    }
+    
+    private IEnumerable<Tag> GetTagsByTestCase(int testCaseId)
+    {
+        return TestCaseService.GetTagsByTestCaseId(testCaseId);
+    }
+    
+    private IEnumerable<Attachment> GetAttachmentsByTestCase(int testCaseId)
+    {
+        return TestCaseService.GetAttachmentsByTestCaseId(testCaseId);
+    }
+    
+    private void ViewAttachment(string attachmentId)
+    {
+        var attachment = AttachmentService.GetAttachmentById(attachmentId);
+        if (attachment != null)
+        {
+            Snackbar.Add($"文件路径: {attachment.FilePath}", Severity.Info);
+        }
+    }
+    
+    private void GoToTestResults(ProjectTestCase testCase)
+    {
+        Navigation.NavigateTo($"/testcases/{testCase.Id}/testresults");
+    }
+}

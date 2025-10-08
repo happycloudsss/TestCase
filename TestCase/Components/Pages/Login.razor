@@ -1,0 +1,133 @@
+@page "/login"
+@layout EmptyLayout
+
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
+@using System.Security.Claims
+@using TestCase.Components.Layout
+@using TestCase.Entities
+@using TestCase.Services
+
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject IHttpContextAccessor HttpContextAccessor;
+
+<div class="d-flex align-items-center justify-content-center" style="height: 100vh;">
+    <MudPaper Elevation="6" Class="pa-6" Style="min-width: 400px;">
+        <MudText Typo="Typo.h4" Class="mb-4 text-center">系统登录</MudText>
+        
+        <MudForm @ref="form">
+            <MudTextField Label="用户名" @bind-Value="username" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3" 
+                          Required="true" />
+            <MudTextField Label="密码" @bind-Value="password" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-3"
+                          Required="true" InputType="InputType.Password" />
+        </MudForm>
+        
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <MudText Color="Color.Error" Class="mb-3">@errorMessage</MudText>
+        }
+        
+        <MudStack Row="true" Spacing="2" class="mt-4">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="HandleLogin" Class="flex-fill">
+                登录
+            </MudButton>
+        </MudStack>
+        
+        <MudText Typo="Typo.body2" Class="mt-4 text-center">
+            <MudText Color="Color.Secondary">提示：可以使用工号、姓名或邮箱登录，无需密码</MudText><br/>
+            <MudText Color="Color.Secondary">管理员账户：用户名 admin，密码 admin</MudText>
+        </MudText>
+    </MudPaper>
+</div>
+
+@code {
+
+    private MudForm form = null!;
+    private string username = "";
+    private string password = "";
+    private string errorMessage = "";
+
+    private async Task HandleLogin()
+    {
+        errorMessage = "";
+
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            errorMessage = "请输入用户名";
+            return;
+        }
+
+        var (isAuthenticated, user) = AuthService.ValidateCredentials(username, password);
+
+        if (isAuthenticated && user != null)
+        {
+
+            // 使用标准的Blazor认证方式
+
+            await SignInUserAsync(user, true);
+
+            // 跳转到首页
+            Navigation.NavigateTo("/", forceLoad: false);
+        }
+        else
+        {
+            errorMessage = "用户名或密码错误";
+        }
+    }
+
+    private async Task<bool> SignInUserAsync(User user, bool rememberMe)
+    {
+        try
+        {
+            var httpContext = HttpContextAccessor.HttpContext;
+            if (httpContext == null) return false;
+
+            // 创建用户声明 (Claims)
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Name),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim("LastLogin", DateTime.UtcNow.ToString("O")),
+                new Claim("DisplayName", user.Name)
+            };
+
+            // 创建身份主体
+            var claimsIdentity = new ClaimsIdentity(
+                claims,
+                CookieAuthenticationDefaults.AuthenticationScheme
+            );
+
+            var claimsPrincipal = new ClaimsPrincipal(claimsIdentity);
+
+            // 配置认证属性
+            var authProperties = new AuthenticationProperties
+            {
+                IsPersistent = rememberMe, // 是否持久化Cookie
+                ExpiresUtc = rememberMe ?
+                    DateTimeOffset.UtcNow.AddDays(30) : // 记住我：30天
+                    DateTimeOffset.UtcNow.AddHours(1),  // 不记住：1小时
+                AllowRefresh = true,
+                IssuedUtc = DateTimeOffset.UtcNow
+            };
+
+            // 执行 SignIn 操作 - 这是核心的登录方法
+            await httpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                claimsPrincipal,
+                authProperties);
+
+            Console.WriteLine($"用户 {user.Name} 登录成功");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SignIn 错误: {ex}");
+            return false;
+        }
+    }
+}

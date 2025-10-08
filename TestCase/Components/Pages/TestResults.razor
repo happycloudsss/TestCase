@@ -1,0 +1,865 @@
+@using Microsoft.AspNetCore.Components
+@using Microsoft.Extensions.Options
+@using Microsoft.JSInterop
+@using MudBlazor
+@using System.IO
+@using System.Threading.Tasks
+
+@* 移除了 PasteImageDialog 组件 *@
+@page "/testcases/{testCaseId:int}/testresults"
+@using TestCase.Components.Dialogs
+@using TestCase.Components.Tools
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using System.Linq
+@inject TestCaseService TestCaseService
+@inject TestResultService TestResultService
+@inject ImageService ImageService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@inject ModuleService ModuleService
+@inject ProjectService ProjectService
+@inject IJSRuntime JSRuntime
+@inject AttachmentService AttachmentService
+@inject IOptions<AppSettngs> AppSettings
+@inject IImagePreviewService ImagePreviewService
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h4" class="mb-4">@testCaseName - 测试结果登记</MudText>
+    
+    <MudStack Row="true" Spacing="2" class="mb-4">
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="GoBack">
+            <MudIcon Icon="@Icons.Material.Filled.ArrowBack" class="mr-1" />
+            返回测试用例列表
+        </MudButton>
+    </MudStack>
+
+    <MudPaper Elevation="3" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h5" class="mb-3">新增测试结果</MudText>
+        <MudForm @ref="form" Model="@newTestResult">
+            <MudField Label="测试结果" Underline="false">
+                <MudRadioGroup @bind-Value="newTestResult.Status" Row="true" Class="mb-2">
+                    <MudRadio Color="Color.Success" Value="TestResultStatus.OK" Label="OK" />
+                    <MudRadio Color="Color.Error" Value="TestResultStatus.NG" Label="NG" />
+                </MudRadioGroup>
+            </MudField>
+            
+            <MudSelect Label="测试轮次" @bind-Value="selectedTestRound" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2"
+                      OnChange="OnTestRoundChanged">
+                @for (int i = 1; i <= testRounds; i++)
+                {
+                    var index = i;
+                    <MudSelectItem Value="@index">@($"第{index}轮")</MudSelectItem>
+                }
+            </MudSelect>
+            
+            <MudNumericField Label="测试次数" @bind-Value="testCount" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" 
+                             Min="1" Max="999" />
+
+            <MudTextField Label="PSR单号" 
+                          @bind-Value="newTestResult.PsrNo" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-2" />
+            
+            <MudTextField Label="备注" 
+                          @bind-Value="newTestResult.Notes" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Lines="3"
+                          Class="mb-2" />
+
+            <MudStack Row="true" Spacing="2" class="mb-1">
+                <MudFileUpload T="IReadOnlyList<IBrowserFile>" Label="图片"
+                               FilesChanged="OnImageFilesChanged" 
+                               Accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
+                               Variant="Variant.Outlined"
+                               Multiple="true">
+                    <ActivatorContent>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Info"
+                                   StartIcon="@Icons.Material.Filled.Image">
+                            上传图片
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+                
+                <PasteImage OnImagePasted="OnNewImagePasted">
+                 </PasteImage>
+            </MudStack>
+
+             @if (selectedImages.Any())
+            {
+                <MudGrid Class="mb-4">
+                    @for (int i = 0; i < selectedImages.Count; i++)
+                    {
+                        var index = i; // 创建临时变量避免闭包问题
+                        <MudItem xs="6" sm="4" md="3">
+                            <MudCard>
+                                <MudCardMedia Image="@selectedImages[index].PreviewUrl" Height="120" Class="clickable-image-preview" @onclick="@(e =>ImagePreviewService.ShowImagePreview(selectedImages[index].PreviewUrl))"  />
+                                <MudCardActions>
+                                    <MudButton Color="Color.Error" Size="Size.Small" OnClick="@(e => RemoveSelectedImage(index))">删除</MudButton>
+                                </MudCardActions>
+                            </MudCard>
+                        </MudItem>
+                    }
+                </MudGrid> 
+            }
+            
+              <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                           Accept="*/*"
+                           Multiple="true"
+                           FilesChanged="NewAttachmentUpload"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="mb-3 mt-3 file-upload-constrained">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                        上传附件
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+
+            @if (newAttachmentList != null)
+            {
+                <div>
+                    @for (int i = 0; i < newAttachmentList.Count; i++)
+                    {
+                        var index = i; // 创建临时变量
+                        <div Icon="@Icons.Material.Filled.AttachFile">
+                             @newAttachmentList[index].Name
+                            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(e => RemoveNewAttachment(index))"></MudButton>
+                        </div>
+                    }
+                </div>
+            }
+
+            <MudStack Row="true" Spacing="2">
+                <MudButton Color="Color.Success" Variant="Variant.Filled" OnClick="SaveTestResult">保存测试结果</MudButton>
+            </MudStack>
+        </MudForm>
+    </MudPaper>
+
+    <MudPaper Elevation="3" Class="pa-4">
+        <MudText Typo="Typo.h5" class="mb-3">历史测试结果</MudText>
+        
+        @if (testResults.Any())
+        {
+            <MudList T="TestResult" ReadOnly="true">
+                @foreach (var result in testResults)
+                {
+                    @if (editingTestResult != null && editingTestResult.Id == result.Id)
+                    {
+                        // 编辑模式
+                        <MudListItem Style="border: 2px solid #2196F3; border-radius: 4px;" Class="mb-1">
+                            <MudForm @ref="editForm" Model="@newTestResult">
+                            <MudStack>
+                                <MudText Typo="Typo.h6" class="mb-2">编辑测试结果</MudText>
+                                
+                                <MudField Label="测试结果" Underline="false">
+                                    <MudRadioGroup @bind-Value="editingTestResult.Status" Row="true" Class="mb-1">
+                                        <MudRadio Color="Color.Success" Value="TestResultStatus.OK" Label="OK" />
+                                        <MudRadio Color="Color.Error" Value="TestResultStatus.NG" Label="NG" />
+                                    </MudRadioGroup>
+                                </MudField>
+
+                                <MudSelect Label="测试轮次" @bind-Value="editingTestResult.TestRound" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-1">
+                                    @for (int i = 1; i <= testRounds; i++)
+                                    {
+                                        var index = i;
+                                        <MudSelectItem Value="@index">@($"第{index}轮")</MudSelectItem>
+                                    }
+                                </MudSelect>
+
+                                <MudNumericField Label="测试次数" @bind-Value="editingTestResult.TestCount" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-1"
+                                                 Min="1" Max="999" />
+                                
+                                <MudTextField Label="PSR单号"
+                                              @bind-Value="editingTestResult.PsrNo"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Class="mb-1" />
+                                
+                                <MudTextField Label="备注"
+                                              @bind-Value="editingTestResult.Notes"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Lines="3"
+                                              Class="mb-1" />
+                                
+                                @if (editingImages.Any())
+                                {
+                                    <MudText Typo="Typo.body1" class="mt-1 m1-2"><strong>相关图片:</strong></MudText>
+                                    <MudGrid Class="mb-1">
+                                        @foreach (var image in editingImages)
+                                        {
+                                            <MudItem xs="6" sm="4" md="3">
+                                                <MudCard>
+                                                    <MudCardMedia Image="@($"api/image/{image.Id}")" Height="120" Class="clickable-image-preview" @onclick="@(e =>ImagePreviewService.ShowImagePreview(image.Id))" />
+                                                    <MudCardActions>
+                                                        <MudButton Color="Color.Error" Size="Size.Small" OnClick="@(e => DeleteEditImage(image))">删除</MudButton>
+                                                    </MudCardActions>
+                                                </MudCard>
+                                            </MudItem>
+                                        }
+                                    </MudGrid>
+                                }                                
+                                
+                                <MudStack Row="true" Spacing="2" class="mb-1">
+                                    <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                                                   FilesChanged="OnEditImageFilesChanged" 
+                                                   Accept=".jpg,.jpeg,.png,.gif,.bmp,.webp"
+                                                   Variant="Variant.Outlined"
+                                                   Multiple="true">
+                                        <ActivatorContent>
+                                            <MudButton Variant="Variant.Filled"
+                                                       Color="Color.Info"
+                                                       StartIcon="@Icons.Material.Filled.Image">
+                                                上传图片
+                                            </MudButton>
+                                        </ActivatorContent>
+                                    </MudFileUpload>
+                                    
+                                        <PasteImage OnImagePasted="OnEditImagePasted">
+                                        </PasteImage>
+                                </MudStack>
+
+                                 <MudFileUpload T="IReadOnlyList<IBrowserFile>" Label="附件"
+                                           Accept="*/*"
+                                           Multiple="true"
+                                           FilesChanged="@(e => UploadEditAttachment(e, result))"
+                                           Variant="Variant.Outlined"
+                                           Margin="Margin.Dense"
+                                           Class="mb-1 file-upload-constrained">
+                                <ActivatorContent>
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Warning"
+                                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                                        上传附件
+                                    </MudButton>
+                                </ActivatorContent>
+                            </MudFileUpload>
+
+                                @if(editingAttachmentList != null && editingAttachmentList.Any())
+                                {
+                                    <div>
+                                        @foreach (var attachment in editingAttachmentList)
+                                        {
+                                            <div>
+                                                <MudIcon Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" />
+                                                <MudLink Href="@($"api/attachment/{attachment.Id}")" Target="_blank" Color="Color.Primary">@attachment.FileName</MudLink>
+                                                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(e => RemoveAttachment(result, attachment))"></MudButton>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                
+                                <MudStack Row="true" Spacing="2" class="">
+                                    <MudButton Color="Color.Success" Variant="Variant.Filled" OnClick="SaveEditTestResult">
+                                        保存
+                                    </MudButton>
+                                    <MudButton Color="Color.Secondary" Variant="Variant.Filled" OnClick="CancelEdit">
+                                        取消
+                                    </MudButton>
+                                </MudStack>
+                            </MudStack>
+                            </MudForm>
+                        </MudListItem>
+                    }
+                    else
+                    {
+                        // 显示模式
+                        <MudListItem Class="mb-3">
+                            <MudStack>
+                                <MudStack Row="true" Spacing="2">
+                                    <MudText Typo="Typo.body1">
+                                        <strong>测试结果:</strong> 
+                                        @if (result.Status == TestResultStatus.OK)
+                                        {
+                                            <MudText Color="Color.Success">OK</MudText>
+                                        }
+                                        else
+                                        {
+                                            <MudText Color="Color.Error">NG</MudText>
+                                        }
+                                    </MudText>
+                                    <MudText Typo="Typo.body1"><strong>登记时间:</strong> @result.CreatedTime.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+                                </MudStack>
+                                
+                                <MudText Typo="Typo.body1"><strong>测试轮次:</strong> @result.TestRound</MudText>
+                                <MudText Typo="Typo.body1"><strong>测试次数:</strong> @result.TestCount</MudText>
+                                
+                                @if (!string.IsNullOrEmpty(result.PsrNo))
+                                {
+                                    <MudText Typo="Typo.body1"><strong>PSR单号:</strong> @result.PsrNo</MudText>
+                                }
+                                
+                                @if (!string.IsNullOrEmpty(result.Notes))
+                                {
+                                    <MudText Typo="Typo.body1"><strong>备注:</strong> @result.Notes</MudText>
+                                }
+                                
+                                @{
+                                    var images = TestResultService.GetImagesByTestResultId(result.Id);
+                                }
+                                @if (images.Any())
+                                {
+                                    <MudText Typo="Typo.body1" class="mt-2 mb-2"><strong>相关图片:</strong></MudText>
+                                    <MudGrid Class="mb-2">
+                                        @foreach (var image in images)
+                                        {
+                                            <MudItem xs="6" sm="4" md="3">
+                                                <MudCard>
+                                                    <MudCardMedia Image="@($"api/image/{image.Id}")" Height="120" Class="clickable-image-preview" @onclick="@(e =>ImagePreviewService.ShowImagePreview(image.Id))" />
+                                                </MudCard>
+                                            </MudItem>
+                                        }
+                                    </MudGrid>
+                                }
+
+                                @{
+                                    var attachments = TestResultService.GetAttachmentsByTestResultId(result.Id);
+                                }
+                                @if(attachments.Any())
+                                {
+                                    <div>
+                                        @foreach (var attachment in attachments)
+                                        {
+                                            <div>
+                                                <MudIcon Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" />
+                                                <MudLink Href="@($"api/attachment/{attachment.Id}")" Target="_blank" Color="Color.Primary">@attachment.FileName</MudLink>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                                                
+
+                                <MudStack Row="true" Spacing="2" class="mt-2">
+                                    <MudButton Color="Color.Secondary" Variant="Variant.Filled" Size="Size.Small" OnClick="@(e => EditTestResult(result))">
+                                        编辑
+                                    </MudButton>
+                                    <MudButton Color="Color.Error" Variant="Variant.Filled" Size="Size.Small" OnClick="@(e => DeleteTestResult(result))">
+                                        删除
+                                    </MudButton>
+                                </MudStack>
+                                
+                                <MudDivider class="my-2" />
+                            </MudStack>
+                        </MudListItem>
+                    }
+                }
+            </MudList>
+        }
+        else
+        {
+            <MudText>暂无测试结果记录</MudText>
+        }
+    </MudPaper>
+</MudPaper>
+
+<style>
+    .no-ripple::before {
+        display: none !important;
+    }
+
+    .file-upload-constrained {
+        width: fit-content !important;
+        display: inline-flex !important;
+        pointer-events: none !important;
+    }
+    
+    .file-upload-constrained > div {
+        pointer-events: auto !important;
+    }
+    
+    .file-upload-constrained .mud-button {
+        pointer-events: auto !important;
+    }
+
+    .clickable-image-preview {
+        cursor: pointer !important;
+        transition: transform 0.2s ease;
+        border-radius: 4px;
+    }
+    
+    .clickable-image-preview:hover {
+        transform: scale(1.02);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+</style>
+
+@code {
+    [Parameter]
+    public int TestCaseId { get; set; }
+
+
+    private MudForm form;
+    private MudForm editForm;
+    private ProjectTestCase? testCase;
+    private Module? module;
+    private Project? project;
+    private string testCaseName = "";
+    private int testRounds = 1;
+    private int selectedTestRound = 1;
+    private int testCount = 1;
+    private IEnumerable<TestResult> testResults = new List<TestResult>();
+    private readonly TestResult newTestResult = new() { Status = TestResultStatus.OK };
+    private TestResult? editingTestResult = null; // 正在编辑的测试结果
+    private readonly List<ImagePreview> selectedImages = new();
+    private List<Image> editingImages = new List<Image>(); // 正在编辑的测试结果的图片
+    private IJSObjectReference? jsModule;
+    private DotNetObjectReference<TestResults>? dotNetRef;
+    private List<IBrowserFile> newAttachmentList = new List<IBrowserFile>();
+    private List<Attachment> editingAttachmentList = new List<Attachment>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        LoadTestCase();
+        LoadProjectInfo();
+        LoadTestResults();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    protected override void OnInitialized()
+    {
+        LoadTestCase();
+        LoadProjectInfo();
+        LoadTestResults();
+    }
+
+    private void LoadTestCase()
+    {
+        testCase = TestCaseService.GetTestCaseById(TestCaseId);
+        if (testCase != null)
+        {
+            testCaseName = testCase.Name;
+        }
+    }
+
+    private void LoadProjectInfo()
+    {
+        if (testCase != null)
+        {
+            module = ModuleService.GetModuleById(testCase.ModuleId);
+            if (module != null)
+            {
+                project = ProjectService.GetProjectById(module.ProjectId);
+                if (project != null)
+                {
+                    testRounds = project.TestRounds;
+                }
+            }
+        }
+    }
+
+    private void LoadTestResults()
+    {
+        testResults = TestResultService.GetTestResultsByTestCaseId(TestCaseId);
+        // 设置初始测试次数
+        testCount = GetMaxTestCountForTestRound(TestCaseId, selectedTestRound) + 1;
+    }
+
+    private async Task OnImageFilesChanged(IReadOnlyList<IBrowserFile> files)
+    {      
+
+        foreach (var file in files)
+        {           
+            //创建预览
+            var previewUrl = await CreatePreviewUrl(file);
+            selectedImages.Add(new ImagePreview 
+            { 
+                File = file, 
+                PreviewUrl = previewUrl 
+            });
+        }
+    }
+
+    private void NewAttachmentUpload(IReadOnlyList<IBrowserFile> files)
+    {      
+
+        foreach (var file in files)
+        {
+            newAttachmentList.Add(file);
+        }
+    }
+
+    private async Task UploadEditAttachment(IReadOnlyList<IBrowserFile> files, TestResult result)
+    {
+        var attachments = await HandleFileUploads(files);
+        foreach(var attachment in attachments)
+        {
+            TestResultService.AddAttachmentToTestResult(result.Id, attachment.Id);
+        }
+
+        editingAttachmentList = TestResultService.GetAttachmentsByTestResultId(result.Id).ToList();
+
+        Snackbar.Add("附件添加成功", Severity.Success);
+    }
+
+    private void RemoveAttachment(TestResult testResult, Attachment attachment)
+    {
+        TestResultService.RemoveAttachmentFromTestResult(testResult.Id, attachment.Id);
+        editingAttachmentList = TestResultService.GetAttachmentsByTestResultId(testResult.Id).ToList();
+        Snackbar.Add("附件移除成功", Severity.Success);
+    }
+
+    private void RemoveNewAttachment(int index)
+    {
+        newAttachmentList.RemoveAt(index);
+    }
+
+    private async Task OnEditImageFilesChanged(IReadOnlyList<IBrowserFile> files)
+    {
+
+        foreach (var file in files)
+        {
+            var imageId = await UploadImage(file);
+            if (imageId > 0)
+            {
+                TestResultService.AddImageToTestResult(editingTestResult.Id, imageId);
+            }
+        }
+
+        // 加载关联的图片
+        editingImages = TestResultService.GetImagesByTestResultId(editingTestResult.Id).ToList();
+    }
+
+    private async Task<string> CreatePreviewUrl(IBrowserFile file)
+    {
+        using var stream = file.OpenReadStream(1024 * 1024 * 10); // 10MB限制
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream);
+        var buffer = memoryStream.ToArray();
+        return $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+    }
+
+    private void RemoveSelectedImage(int index)
+    {
+        var image = selectedImages[index];
+        selectedImages.RemoveAt(index);
+    }
+
+    private void EditTestResult(TestResult testResult)
+    {
+        // 设置正在编辑的测试结果
+        editingTestResult = testResult;
+
+        // 加载关联的图片
+        editingImages = TestResultService.GetImagesByTestResultId(testResult.Id).ToList();
+        editingAttachmentList = TestResultService.GetAttachmentsByTestResultId(testResult.Id).ToList();
+
+        Snackbar.Add("进入编辑模式，请修改测试结果信息后点击保存", Severity.Info);
+    }
+
+    private void ResetNewForm(){
+        // 重置表单
+        newTestResult.Id = 0;
+        newTestResult.Status = TestResultStatus.OK;
+        newTestResult.PsrNo = "";
+        newTestResult.Notes = "";
+        selectedTestRound = 1;
+        testCount = 1;
+
+        selectedImages.Clear();
+        newAttachmentList.Clear();
+    }
+
+    private void CancelEdit()
+    {
+        editingTestResult = null;
+        editingImages.Clear();
+        editingAttachmentList.Clear();
+    }
+
+    private async Task DeleteTestResult(TestResult testResult)
+    {
+        bool? result = await DialogService.ShowMessageBox("确认删除", "确定要删除这条测试结果记录吗？", yesText: "删除", cancelText: "取消");
+        if (result == true)
+        {
+            try
+            {
+                TestResultService.DeleteTestResult(testResult.Id);
+                LoadTestResults(); // 重新加载测试结果
+                Snackbar.Add("测试结果已删除", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"删除失败: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task SaveTestResult()
+    {
+        await form.Validate();
+
+        if (newTestResult.Status != TestResultStatus.OK && newTestResult.Status != TestResultStatus.NG)
+        {
+            Snackbar.Add("请选择测试结果", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            // 设置测试结果的基本信息
+            newTestResult.TestCaseId = TestCaseId;
+            newTestResult.TestRound = selectedTestRound;
+            newTestResult.TestCount = testCount;
+
+            // 创建新的测试结果
+            TestResultService.CreateTestResult(newTestResult);
+
+            // 上传并关联图片
+            foreach (var imagePreview in selectedImages)
+            {
+                var imageId = await UploadImage(imagePreview.File);
+                if (imageId > 0)
+                {
+                    TestResultService.AddImageToTestResult(newTestResult.Id, imageId);
+                }
+            }
+
+            //上传并关联附件
+            var uploadedAttachments = await HandleFileUploads(newAttachmentList);
+            foreach(var attachment in uploadedAttachments)
+            {
+                if(attachment.Id > 0)
+                {
+                    TestResultService.AddAttachmentToTestResult(newTestResult.Id, attachment.Id);
+                }
+            }
+
+
+            // 重置表单
+            ResetNewForm();
+
+            // 重新加载测试结果
+            LoadTestResults();
+
+            Snackbar.Add("测试结果保存成功", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"保存测试结果时出错: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveEditTestResult()
+    {
+        await editForm.Validate();
+
+        if (editingTestResult.Status != TestResultStatus.OK && editingTestResult.Status != TestResultStatus.NG)
+        {
+            Snackbar.Add("请选择测试结果", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            TestResultService.UpdateTestResult(editingTestResult);
+
+            CancelEdit();
+
+            // 重新加载测试结果
+            LoadTestResults();
+
+            Snackbar.Add("测试结果保存成功", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"保存测试结果时出错: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OnTestRoundChanged(object value)
+    {
+        if (int.TryParse(value.ToString(), out int testRound))
+        {
+            testCount = GetMaxTestCountForTestRound(TestCaseId, testRound) + 1;
+        }
+    }
+
+    private int GetMaxTestCountForTestRound(int testCaseId, int testRound)
+    {
+        var testResults = TestResultService.GetTestResultsByTestCaseIdAndTestRound(testCaseId, testRound);
+        var maxCount = testResults.Select(tr => tr.TestCount)
+                                  .DefaultIfEmpty(0)
+                                  .Max();
+        return maxCount;
+    }
+
+    private async Task<int> UploadImage(IBrowserFile file)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var stream = file.OpenReadStream(1024 * 1024 * 10); // 10MB限制
+            var streamContent = new StreamContent(stream);
+            content.Add(streamContent, "file", file.Name);
+
+            var response = await new HttpClient().PostAsync($"{Navigation.BaseUri}api/image/upload", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadAsStringAsync();
+                // 解析返回的图片URL，从中提取ID
+                // 这里简化处理，实际应该解析JSON响应
+                // 假设URL格式为 /api/image/{id}
+                var url = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(result);
+                if (url != null && url.ContainsKey("url"))
+                {
+                    var imageUrl = url["url"];
+                    var segments = imageUrl.Split('/');
+                    if (int.TryParse(segments[segments.Length - 1], out var imageId))
+                    {
+                        return imageId;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"上传图片时出错: {ex.Message}", Severity.Error);
+        }
+
+        return 0;
+    }
+
+    private async Task DeleteEditImage(Image image)
+    {
+        if (editingTestResult == null) return;
+
+        bool? result = await DialogService.ShowMessageBox("确认删除", "确定要删除这张图片吗？", yesText: "删除", cancelText: "取消");
+        if (result == true)
+        {
+            try
+            {
+                // 从编辑中的图片列表中移除
+                editingImages.Remove(image);
+                TestResultService.RemoveImageFromTestResult(editingTestResult.Id, image.Id);
+                Snackbar.Add("图片已删除", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"删除图片失败: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task OnNewImagePasted(IBrowserFile file)
+    {
+        // 创建预览
+        var previewUrl = await CreatePreviewUrl(file);
+        selectedImages.Add(new ImagePreview 
+        { 
+            File = file, 
+            PreviewUrl = previewUrl 
+        });
+        
+        Snackbar.Add("图片已粘贴", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task OnEditImagePasted(IBrowserFile file)
+    {
+        if (editingTestResult == null) return;
+
+        var imageId = await UploadImage(file);
+        if (imageId > 0)
+        {
+            TestResultService.AddImageToTestResult(editingTestResult.Id, imageId);
+            // 加载关联的图片
+            editingImages = TestResultService.GetImagesByTestResultId(editingTestResult.Id).ToList();
+            Snackbar.Add("图片已粘贴并添加到测试结果", Severity.Success);
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack()
+    {
+        if (testCase != null)
+        {
+            Navigation.NavigateTo($"/modules/{testCase.ModuleId}/testcases");
+        }
+    }
+    
+
+    private async Task<List<Attachment>> HandleFileUploads(IEnumerable<IBrowserFile> files)
+    {
+        var result = new List<Attachment>();
+        var attachmentsPath = AppSettings.Value.AttachmentsPath;
+
+        // Ensure attachments directory exists
+        if (!string.IsNullOrEmpty(attachmentsPath))
+        {
+            Directory.CreateDirectory(attachmentsPath);
+
+            foreach (var file in files)
+            {
+                // Generate unique file name
+                var fileName = $"{Guid.NewGuid().ToString("N")}_{file.Name}";
+                if(fileName.Length > 255)
+                {
+                    Snackbar.Add($"文件名过长,上传失败。文件名长度需小于222", Severity.Error);
+                    return result;
+                }
+                var filePath = Path.Combine(attachmentsPath, fileName);
+
+                try
+                {
+                    // Save file to disk
+                    using var stream = file.OpenReadStream(10_000_000); // 10MB limit
+                    using var fileStream = File.Create(filePath);
+                    await stream.CopyToAsync(fileStream);
+
+                    // Create attachment record
+                    var attachment = new Attachment
+                    {
+                        FileName = file.Name,
+                        FilePath = filePath,
+                        Size = file.Size,
+                        CreatedUser = "system",
+                        UpdateUser = "system"
+                    };
+
+                    AttachmentService.CreateAttachment(attachment);
+                    result.Add(attachment);
+                }
+                catch
+                {
+                    // 如果保存文件失败，删除可能已经创建的文件
+                    if (File.Exists(filePath))
+                    {
+                        try 
+                        {
+                            File.Delete(filePath);
+                        }
+                        catch
+                        {
+                            // 忽略删除失败的情况
+                        }
+                    }
+                    throw;
+                }
+            }
+        }
+
+        return result;
+    }    
+
+    public class ImagePreview
+    {
+        public IBrowserFile File { get; set; } = null!;
+        public string PreviewUrl { get; set; } = "";
+    }
+}

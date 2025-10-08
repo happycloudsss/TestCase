@@ -1,0 +1,107 @@
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@inject ModuleService ModuleService
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudText class="mb-4" Weight="FontWeight.Medium">@title</MudText>
+        <MudForm @ref="form" Model="@module">
+            <MudTextField Label="模块名称" 
+                          @bind-Value="module.Name" 
+                          Required="true" 
+                          RequiredError="模块名称是必填项"
+                          For="@(() => module.Name)"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-3" />
+            
+            <MudTextField Label="模块描述" 
+                          @bind-Value="module.Description" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Lines="3"
+                          Class="mb-3" />
+            
+            <MudTextField Label="负责人1" 
+                          @bind-Value="module.Owner1" 
+                          Required="true" 
+                          RequiredError="负责人1是必填项"
+                          For="@(() => module.Owner1)"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+            
+            <MudTextField Label="负责人2" 
+                          @bind-Value="module.Owner2" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Class="mb-3" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">取消</MudButton>
+        <MudButton OnClick="Save" Color="Color.Primary" Variant="Variant.Filled">保存</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter] 
+    public int ModuleId { get; set; }
+    
+    [Parameter]
+    public int ProjectId { get; set; }
+
+    private bool IsEdit => ModuleId > 0;
+    private string title => IsEdit ? "编辑模块" : "新增模块";
+    private readonly Module module = new();
+    private MudForm form = null!;
+
+    protected override void OnInitialized()
+    {
+        if (IsEdit)
+        {
+            var existingModule = ModuleService.GetModuleById(ModuleId);
+            if (existingModule != null)
+            {
+                module.Id = existingModule.Id;
+                module.Name = existingModule.Name;
+                module.Description = existingModule.Description;
+                module.ProjectId = existingModule.ProjectId;
+                module.Owner1 = existingModule.Owner1;
+                module.Owner2 = existingModule.Owner2;
+            }
+        }
+        else
+        {
+            module.ProjectId = ProjectId;
+        }
+    }
+
+    private async Task Save()
+    {
+        await form.Validate();
+
+        if (form.IsValid)
+        {
+            if (IsEdit)
+            {
+                ModuleService.UpdateModule(module);
+            }
+            else
+            {
+                ModuleService.CreateModule(module);
+            }
+            MudDialog?.Close(DialogResult.Ok(true));
+        }
+    }
+
+    private void Cancel()
+    {
+        MudDialog?.Cancel();
+    }
+}

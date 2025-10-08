@@ -1,0 +1,127 @@
+@page "/"
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using TestCase.Components.Dialogs
+@using TestCase.Entities
+@using TestCase.Services
+@using MudBlazor
+@inject ProjectService ProjectService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h4" class="mb-4">项目管理</MudText>
+    
+    <MudStack Row="true" Spacing="2" class="mb-4">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenCreateDialog">
+            <MudIcon Icon="@Icons.Material.Filled.Add" class="mr-1" />
+            新增项目
+        </MudButton>
+    </MudStack>
+
+    <MudTable Items="@projects" 
+              Hover="true" 
+              Breakpoint="Breakpoint.Sm" 
+              @ref="tableInstance">
+        <HeaderContent>
+            <MudTh>项目名称</MudTh>
+            <MudTh>项目描述</MudTh>
+            <MudTh>起止日期</MudTh>
+            <MudTh>测试轮次</MudTh>
+            <MudTh>操作</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="项目名称"><MudLink OnClick="@(e => GoToModules(context.Id))" Color="Color.Primary">@context.Name</MudLink></MudTd>
+            <MudTd DataLabel="项目描述">@context.Description</MudTd>
+            <MudTd DataLabel="起止日期">@context.StartDate?.ToString("yyyy-MM-dd") - @context.EndDate?.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="测试轮次">@context.TestRounds</MudTd>
+            <MudTd DataLabel="操作">
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Primary" 
+                               OnClick="@(e => OpenEditDialog(context))">
+                        编辑
+                    </MudButton>
+                    <MudButton Size="Size.Small" 
+                               Variant="Variant.Filled" 
+                               Color="Color.Secondary" 
+                               OnClick="@(e => DeleteProject(context))">
+                        删除
+                    </MudButton>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="@(new int[]{10, 25, 50})" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private IEnumerable<Project> projects = new List<Project>();
+    private MudTable<Project> tableInstance = null!;
+
+    protected override void OnInitialized()
+    {
+        LoadProjects();
+    }
+
+    private void LoadProjects()
+    {
+        projects = ProjectService.GetAllProjects();
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        // var parameters = new DialogParameters();
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditProjectDialog>("新增项目", options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadProjects();
+            Snackbar.Add("项目创建成功", Severity.Success);
+        }
+    }
+
+    private async Task OpenEditDialog(Project project)
+    {
+        var parameters = new DialogParameters
+        {
+            { "ProjectId", project.Id }
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseOnEscapeKey = true, BackdropClick = true };
+        var dialog = await DialogService.ShowAsync<CreateEditProjectDialog>("编辑项目", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            LoadProjects();
+            Snackbar.Add("项目更新成功", Severity.Success);
+        }
+    }
+
+    private async Task DeleteProject(Project project)
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "删除确认",
+            $"确定要删除项目 \"{project.Name}\" 吗？此操作无法撤销。",
+            yesText: "删除", cancelText: "取消");
+
+        if (result == true)
+        {
+            ProjectService.DeleteProject(project.Id);
+            LoadProjects();
+            Snackbar.Add("项目删除成功", Severity.Success);
+        }
+    }
+    
+    private void GoToModules(int projectId)
+    {
+        Navigation.NavigateTo($"/projects/{projectId}/modules");
+    }
+}

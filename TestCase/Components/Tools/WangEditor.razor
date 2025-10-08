@@ -1,0 +1,116 @@
+﻿@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div @ref="editorWrapper" class="wangeditor-wrapper" style="border: 1px solid #ccc;" @key="InstanceId">
+    <div @ref="toolbarContainer" id="@($"toolbar-{InstanceId}")"></div>
+    <div @ref="editorContainer" id="@($"editor-{InstanceId}")" style="height: @Height; overflow-y: auto;"></div>
+</div>
+
+<style>
+    .wangeditor-wrapper {
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+        .wangeditor-wrapper:focus-within {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+</style>
+
+@code {
+    private ElementReference editorWrapper;
+    private ElementReference toolbarContainer;
+    private ElementReference editorContainer;
+
+    // 为每个实例生成唯一ID
+    private readonly string InstanceId = Guid.NewGuid().ToString("N");
+
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "请输入内容...";
+    [Parameter] public bool ReadOnly { get; set; } = false;
+    [Parameter] public string Height { get; set; } = "400px";
+    [Parameter] public EventCallback OnInitialized { get; set; }
+
+    // 新增参数：自定义工具栏配置
+    [Parameter] public List<string> CustomToolbarKeys { get; set; }
+    [Parameter] public string UploadImageApi { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeEditor();
+            await OnInitialized.InvokeAsync();
+        }
+    }
+
+    private async Task InitializeEditor()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("wangEditorInterop.initialize",
+                InstanceId,
+                DotNetObjectReference.Create(this),
+                $"toolbar-{InstanceId}",
+                $"editor-{InstanceId}",
+                Value,
+                new
+                {
+                    placeholder = Placeholder,
+                    readOnly = ReadOnly,
+                    customToolbarKeys = CustomToolbarKeys,
+                    uploadImageApi = UploadImageApi
+                });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"初始化wangEditor失败: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnContentChanged(string html)
+    {
+        Value = html;
+        await ValueChanged.InvokeAsync(html);
+    }
+
+    // 提供获取内容的方法
+    public async Task<string> GetContent()
+    {
+        return await JSRuntime.InvokeAsync<string>("wangEditorInterop.getContent", InstanceId);
+    }
+
+    // 提供设置内容的方法
+    public async Task SetContent(string html)
+    {
+        await JSRuntime.InvokeVoidAsync("wangEditorInterop.setContent", InstanceId, html);
+    }
+
+    // 设置只读模式
+    public async Task SetReadOnly(bool readOnly)
+    {
+        await JSRuntime.InvokeVoidAsync("wangEditorInterop.setReadOnly", InstanceId, readOnly);
+    }
+
+    // 刷新编辑器
+    public async Task Refresh()
+    {
+        await JSRuntime.InvokeVoidAsync("wangEditorInterop.refresh", InstanceId);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("wangEditorInterop.destroy", InstanceId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"销毁wangEditor失败: {ex.Message}");
+        }
+    }
+}

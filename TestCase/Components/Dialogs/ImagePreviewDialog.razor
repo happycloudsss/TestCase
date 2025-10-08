@@ -1,0 +1,70 @@
+﻿@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <div style="display: flex; justify-content: center; align-items: center; min-height: 300px;">
+            @if (!string.IsNullOrEmpty(ImageUrl))
+            {
+                <img src="@ImageUrl" class="preview-image" @onload="OnImageLoad" @onerror="OnImageError" />
+            }
+            else if (isLoading)
+            {
+                <MudProgressCircular Indeterminate="true" />
+            }
+            else
+            {
+                <MudText>图片加载失败</MudText>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">关闭</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<style>
+    .preview-image {
+        max-width: 100%;
+        max-height: 70vh;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+</style>
+
+@code {
+    [CascadingParameter]
+    public IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string ImageUrl { get; set; } = "";
+
+    [Parameter]
+    public string Title { get; set; } = "图片预览";
+
+    private bool isLoading = true;
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrEmpty(Title))
+        {
+            MudDialog.SetTitleAsync(Title).Wait();
+        }
+    }
+
+    private void OnImageLoad()
+    {
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private void OnImageError()
+    {
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        MudDialog.Close();
+    }
+}

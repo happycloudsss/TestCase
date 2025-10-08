@@ -1,0 +1,26 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="TestCase.styles.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="google_roboto.css" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css?v=@(MudBlazor.Metadata.Version)" rel="stylesheet" />
+    <link href="wangEditor/wangEditor.css" rel="stylesheet" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js?v=@(MudBlazor.Metadata.Version)"></script>
+    <script src="wangEditor/wangEditor.js"></script>
+    <script src="wangeditor-interop.js"></script>
+    <script src="js/pasteImageHandler.js"></script>
+</body>
+
+</html>

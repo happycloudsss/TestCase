@@ -1,0 +1,141 @@
+﻿@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using MudBlazor
+@using System.Threading
+
+<div @ref="pasteAreaElement" 
+     tabindex="0" 
+     style="@($"outline: none; border: 2px solid {(!IsFocused ? "#ccc" : "#2196F3")}; border-radius: 4px; padding: 8px 12px; height: 36px; display: flex; align-items: center; cursor: text; background-color: {(!IsFocused ? "white" : "#f5f9ff")}; position: relative; {(IsFocused ? "box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);" : "")}")"
+     @onfocus="() => IsFocused = true"
+     @onblur="() => IsFocused = false">
+    
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        <MudIcon Icon="@Icons.Material.Filled.ContentPaste" Color="Color.Primary" Size="Size.Small" />
+        <MudText Typo="Typo.body2" Style="color: #666;">@Text</MudText>
+    </MudStack>
+    
+    @if (IsFocused)
+    {
+        <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); height: 20px; width: 2px; background-color: #2196F3; animation: blink 1s infinite;" ></div>
+    }
+
+    @if (ChildContent != null)
+    {
+        <div class="mt-2">
+            @ChildContent
+        </div>
+    }
+</div>
+
+<style>
+    @@keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = "在此区域按 Ctrl+V 粘贴图片";
+
+    [Parameter]
+    public string BorderColor { get; set; } = "#2196F3";
+
+    [Parameter]
+    public EventCallback<IBrowserFile> OnImagePasted { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private ElementReference pasteAreaElement;
+    private bool IsFocused = false;
+    private IJSObjectReference? jsModule;
+    private DotNetObjectReference<PasteImage>? dotNetRef;
+
+    [Inject]
+    private IJSRuntime JSRuntime { get; set; } = default!;
+
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (firstRender)
+        {
+            try
+            {
+                dotNetRef = DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("TestCase.PasteImageHandler.initialize", dotNetRef, pasteAreaElement);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"初始化粘贴功能失败: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandlePastedImage(string fileName, byte[] data, string contentType)
+    {
+        try
+        {
+            if (data == null || data.Length == 0)
+            {
+                Snackbar.Add("粘贴的图片数据为空", Severity.Warning);
+                return;
+            }
+
+            // 创建一个自定义的IBrowserFile实现来处理粘贴的图片
+            var pastedImage = new PastedBrowserFile(fileName, data, contentType);
+
+            // 触发事件回调
+            await OnImagePasted.InvokeAsync(pastedImage);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"处理粘贴图片时出错: {ex.Message}", Severity.Error);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("TestCase.PasteImageHandler.dispose", pasteAreaElement);
+            dotNetRef?.Dispose();
+        }
+        catch
+        {
+            // 忽略 Dispose 过程中的错误
+        }
+    }
+
+    // 自定义 IBrowserFile 实现
+    public class PastedBrowserFile : IBrowserFile
+    {
+        private readonly byte[] _data;
+
+        public PastedBrowserFile(string name, byte[] data, string contentType)
+        {
+            Name = name;
+            ContentType = contentType;
+            Size = data.Length;
+            _data = data;
+        }
+
+        public string Name { get; }
+        public long Size { get; }
+        public string ContentType { get; }
+        public DateTimeOffset LastModified => DateTimeOffset.Now;
+
+        public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default)
+        {
+            if (Size > maxAllowedSize)
+                throw new IOException($"File size exceeds the maximum allowed size of {maxAllowedSize} bytes.");
+
+            return new MemoryStream(_data);
+        }
+    }
+}

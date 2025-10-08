@@ -1,0 +1,303 @@
+@using System.IO;
+@using Microsoft.AspNetCore.Components.Forms;
+@using Microsoft.Extensions.Options;
+@using TestCase.Components.Tools
+@using TestCase.Entities;
+@using TestCase.Services;
+@using MudBlazor;
+@inject TestCaseService TestCaseService
+@inject AttachmentService AttachmentService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IOptions<AppSettngs> AppSettings
+@inject NavigationManager NavigationManager
+
+<MudDialog>
+    <DialogContent>
+        <MudText class="mb-4" Weight="FontWeight.Medium">@title</MudText>
+        <MudForm @ref="form" Model="@testCase">
+            <MudTextField Label="用例名称" 
+                          @bind-Value="testCase.Name" 
+                          Required="true" 
+                          RequiredError="用例名称是必填项"
+                          For="@(() => testCase.Name)"
+                          Margin="Margin.Dense"
+                          Variant="Variant.Outlined"
+                          Class="mb-3" />
+            
+            @* <MudTextField Label="用例描述" 
+                          @bind-Value="testCase.Description" 
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Lines="3"
+                          Class="mb-3" /> *@
+
+                <WangEditor @ref="editor1" 
+                    @bind-Value="testCase.Description" 
+                    Placeholder="请输入测试用例详细描述"
+                    UploadImageApi="@($"{NavigationManager.BaseUri}api/Image/upload")"
+                    Height="300px" />
+            
+            <MudFileUpload T="IReadOnlyList<IBrowserFile>" Label="附件"
+                           Accept="*/*"
+                           Multiple="true"
+                           FilesChanged="FilesChanged"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Class="mb-3 mt-3">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.CloudUpload">
+                        上传附件
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+
+            @if(IsEdit)
+            {
+                @if(attachments !=null)
+                {
+                    <div>
+                        @foreach (var attachment in attachments)
+                        {
+                            <div>
+                                <MudIcon Icon="@Icons.Material.Filled.AttachFile" Size="Size.Small" />
+                                <MudLink Href="@($"api/attachment/{attachment.Id}")" Target="_blank" Color="Color.Primary">@attachment.FileName</MudLink>
+                                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(e => RemoveAttachment(attachment))"></MudButton>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                @if (files != null)
+                {
+                    <div>
+                        @for (int i=0; i<files.Count; i++)
+                        {
+                            var index = i; // 创建临时变量
+                            <div Icon="@Icons.Material.Filled.AttachFile">
+                                @files[index].Name
+                                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(e => RemoveTempAttachment(index))"></MudButton>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+
+            
+            <MudSelect Label="标签" 
+                       MultiSelection="true"
+                       @bind-SelectedValues="@selectedTagIds"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Class="mb-3">
+                @foreach (var tag in availableTags)
+                {
+                    <MudSelectItem Value="@tag.Id">@tag.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">取消</MudButton>
+        <MudButton OnClick="Save" Color="Color.Primary" Variant="Variant.Filled">保存</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+
+    [CascadingParameter]
+    private IMudDialogInstance? MudDialog { get; set; }
+
+    [Parameter] 
+    public int TestCaseId { get; set; }
+
+    [Parameter]
+    public int ModuleId { get; set; }
+
+    [Parameter]
+    public List<Tag> AvailableTags { get; set; } = new List<Tag>();
+
+     private WangEditor editor1;
+
+    private IEnumerable<Tag> availableTags => AvailableTags;
+
+    private bool IsEdit => TestCaseId > 0;
+    private string title => IsEdit ? "编辑测试用例" : "新增测试用例";
+    private readonly ProjectTestCase testCase = new();
+    private IEnumerable<int> selectedTagIds = new List<int>();
+    private MudForm form = null!;
+
+    private List<IBrowserFile> files = new List<IBrowserFile>();
+    private List<Attachment> attachments = new List<Attachment>();
+
+
+    protected override void OnInitialized()
+    {
+        if (IsEdit)
+        {
+            var existingTestCase = TestCaseService.GetTestCaseById(TestCaseId);
+            if (existingTestCase != null)
+            {
+                testCase.Id = existingTestCase.Id;
+                testCase.Name = existingTestCase.Name;
+                testCase.Description = existingTestCase.Description;
+                testCase.ModuleId = existingTestCase.ModuleId;
+
+                // Load associated tags
+                var tags = TestCaseService.GetTagsByTestCaseId(TestCaseId);
+                selectedTagIds = new List<int>(tags.Select(t => t.Id));
+
+                // Load associated attachments
+                attachments = TestCaseService.GetAttachmentsByTestCaseId(TestCaseId).ToList();
+            }
+        }
+        else
+        {
+            testCase.ModuleId = ModuleId;
+        }
+    }
+
+    private async Task Save()
+    {
+        await form.Validate();
+
+        if (form.IsValid)
+        {
+            if (IsEdit)
+            {
+                TestCaseService.UpdateTestCase(testCase);
+                // Update tag associations
+                UpdateTagAssociations();
+            }
+            else
+            {
+                TestCaseService.CreateTestCase(testCase);
+                // Handle file uploads
+                await HandleFileUploads(this.files);
+                // Add tag associations
+                UpdateTagAssociations();
+            }
+            MudDialog?.Close(DialogResult.Ok(true));
+        }
+    }
+
+    private void UpdateTagAssociations()
+    {
+        // For simplicity, we'll remove all existing associations and add the selected ones
+        if (IsEdit)
+        {
+            // Get all current tag associations for this test case
+            var currentTags = TestCaseService.GetTagsByTestCaseId(testCase.Id);
+            foreach (var tag in currentTags)
+            {
+                TestCaseService.RemoveTagFromTestCase(testCase.Id, tag.Id);
+            }
+        }
+
+        // Add selected tags
+        foreach (var tagId in selectedTagIds)
+        {
+            TestCaseService.AddTagToTestCase(testCase.Id, tagId);
+        }
+    }
+
+    private async Task FilesChanged(IReadOnlyList<IBrowserFile> files)
+    {
+        foreach (var file in files)
+        {
+            this.files.Add(file);
+        }
+
+        if(IsEdit){
+            await HandleFileUploads(files);
+            OnInitialized();
+        }
+    }
+
+    private async Task HandleFileUploads(IEnumerable<IBrowserFile> files)
+    {
+        var attachmentsPath = AppSettings.Value.AttachmentsPath;
+
+        // Ensure attachments directory exists
+        if (!string.IsNullOrEmpty(attachmentsPath))
+        {
+            Directory.CreateDirectory(attachmentsPath);
+
+            foreach (var file in files)
+            {
+                // Generate unique file name
+                var fileName = $"{Guid.NewGuid().ToString("N")}_{file.Name}";
+                if(fileName.Length > 255)
+                {
+                    Snackbar.Add($"文件名过长,上传失败。文件名长度需小于222", Severity.Error);
+                    return;
+                }
+                var filePath = Path.Combine(attachmentsPath, fileName);
+
+                try
+                {
+                    // Save file to disk
+                    using var stream = file.OpenReadStream(10_000_000); // 10MB limit
+                    using var fileStream = File.Create(filePath);
+                    await stream.CopyToAsync(fileStream);
+
+                    // Create attachment record
+                    var attachment = new Attachment
+                    {
+                        FileName = file.Name,
+                        FilePath = filePath,
+                        Size = file.Size,
+                        CreatedUser = "system",
+                        UpdateUser = "system"
+                    };
+
+                    AttachmentService.CreateAttachment(attachment);
+                    TestCaseService.AddAttachmentToTestCase(testCase.Id, attachment.Id);
+                }
+                catch
+                {
+                    // 如果保存文件失败，删除可能已经创建的文件
+                    if (File.Exists(filePath))
+                    {
+                        try 
+                        {
+                            File.Delete(filePath);
+                        }
+                        catch
+                        {
+                            // 忽略删除失败的情况
+                        }
+                    }
+                    throw;
+                }
+            }
+        }
+    }    
+
+    private async Task Cancel()
+    {   
+        MudDialog?.Cancel();
+    }
+
+    private async Task RemoveAttachment(Attachment attachment)
+    {        
+        TestCaseService.RemoveAttachmentFromTestCase(TestCaseId, attachment.Id);
+        AttachmentService.DeleteAttachment(attachment);
+        if (File.Exists(attachment.FilePath))
+        {
+            File.Delete(attachment.FilePath);
+        }
+        OnInitialized();
+        Snackbar.Add($"删除附件《{attachment.FileName}》完成", Severity.Success);
+    }
+
+    private async Task RemoveTempAttachment(int index)
+    {
+        files.RemoveAt(index);
+        //Snackbar.Add($"删除附件完成", Severity.Success);
+    }
+}
